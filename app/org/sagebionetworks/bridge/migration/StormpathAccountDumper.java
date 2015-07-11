@@ -65,7 +65,7 @@ class StormpathAccountDumper {
                     writer.write("\r\n");
                 }
                 try {
-                    Thread.sleep(100L);
+                    Thread.sleep(20L);
                 } catch(Exception e) {
                     e.printStackTrace();
                 }
