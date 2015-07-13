@@ -24,8 +24,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 class StormpathAccountDumper {
 
     public static void main(String[] args) throws IOException {
-        StormpathAccountDumper saDumper = new StormpathAccountDumper(Environment.PROD, "heroku");
-        saDumper.dump("stormpath-account-prod");
+        StormpathAccountDumper saDumper = new StormpathAccountDumper(Environment.UAT, "heroku");
+        saDumper.dump("stormpath-account-uat");
     }
 
     StormpathAccountDumper(final Environment env, final String user) {
