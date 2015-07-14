@@ -24,12 +24,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 class StormpathAccountDumper {
 
     public static void main(String[] args) throws IOException {
-        StormpathAccountDumper saDumper = new StormpathAccountDumper(Environment.UAT, "heroku");
-        saDumper.dump("stormpath-account-uat");
+        StormpathAccountDumper saDumper = new StormpathAccountDumper(Environment.PROD, "heroku");
+        saDumper.dump("stormpath-account-prod");
     }
 
     StormpathAccountDumper(final Environment env, final String user) {
-        Utils.checkEnvironment(env, user);
+        Utils.checkEnvironmentUser(env, user);
     }
 
     void dump(final String outputFile) throws FileNotFoundException, IOException {
@@ -49,7 +49,7 @@ class StormpathAccountDumper {
                 Writer writer = new BufferedWriter(osw)) {
             final ObjectMapper mapper = new ObjectMapper();
             final JsonNodeFactory nodeFactory = new JsonNodeFactory(false);
-            final StormpathAccountDao spDao = Utils.getAppContext().getBean(StormpathAccountDao.class);
+            final StormpathAccountDao spDao = Utils.loadAppContext().getBean(StormpathAccountDao.class);
             Iterator<Account> accounts = spDao.getAllAccounts();
             while (accounts.hasNext()) {
                 Account account = accounts.next();

@@ -17,23 +17,34 @@ import org.joda.time.DateTime;
 import org.sagebionetworks.bridge.config.Environment;
 import org.sagebionetworks.bridge.dao.HealthDataDao;
 import org.sagebionetworks.bridge.models.healthdata.HealthDataRecord;
+import org.springframework.context.support.AbstractApplicationContext;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 class HealthDataDumper {
 
     public static void main(String[] args) throws FileNotFoundException, IOException {
-        HealthDataDumper dataDumper = new HealthDataDumper(Environment.UAT, "heroku");
+        final AbstractApplicationContext appContext = Utils.loadAppContext();
+        HealthDataDumper dataDumper = new HealthDataDumper(Environment.UAT, "heroku", appContext);
         DateTime start = new DateTime(2015, 7, 7, 0, 0);
         DateTime end = new DateTime(2015, 7, 10, 0, 0);
         String output = "health-data-staging-0707-0710";
         dataDumper.dump(start, end, output,
-                new HealthDataStudyFilter("cardiovascular"),
+                new HealthDataStudyFilter(appContext, "cardiovascular"),
                 new HealthDataAppVersionFilter("1.0.8"));
     }
 
+    private final AbstractApplicationContext appContext;
+
     HealthDataDumper(final Environment env, final String user) {
-        Utils.checkEnvironment(env, user);
+        Utils.checkEnvironmentUser(env, user);
+        appContext = Utils.loadAppContext();
+    }
+
+    HealthDataDumper(final Environment env, final String user, final AbstractApplicationContext appContext) {
+        Utils.checkEnvironmentUser(env, user);
+        checkNotNull(appContext);
+        this.appContext = appContext;
     }
 
     /**
@@ -60,7 +71,7 @@ class HealthDataDumper {
                 final Writer writer = new BufferedWriter(osw)) {
 
             final ObjectMapper mapper = new ObjectMapper();
-            final HealthDataDao hdDao = Utils.getAppContext().getBean(HealthDataDao.class);
+            final HealthDataDao hdDao = appContext.getBean(HealthDataDao.class);
 
             DateTime start = startDay;
             while (start.isBefore(endDay)) {

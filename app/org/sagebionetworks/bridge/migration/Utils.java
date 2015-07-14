@@ -5,12 +5,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sagebionetworks.bridge.config.BridgeConfig;
 import org.sagebionetworks.bridge.config.BridgeConfigFactory;
 import org.sagebionetworks.bridge.config.Environment;
+import org.sagebionetworks.bridge.models.studies.Study;
+import org.sagebionetworks.bridge.services.StudyService;
 import org.springframework.context.support.AbstractApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
 
 final class Utils {
 
-    static AbstractApplicationContext getAppContext() {
+    static AbstractApplicationContext loadAppContext() {
         final AbstractApplicationContext appContext =
                 new ClassPathXmlApplicationContext("application-context.xml");
         Runtime.getRuntime().addShutdownHook(new Thread() {
@@ -23,7 +25,7 @@ final class Utils {
         return appContext;
     }
 
-    static void checkEnvironment(final Environment env, final String user) {
+    static void checkEnvironmentUser(final Environment env, final String user) {
         checkNotNull(env);
         checkNotNull(user);
         final BridgeConfig config = BridgeConfigFactory.getConfig();
@@ -34,6 +36,14 @@ final class Utils {
         if (!config.getUser().equals(user)) {
             throw new RuntimeException("Wrong user. Expected user: " + user
                     + ". Actual user: " + config.getUser() + ".");
+        }
+    }
+
+    static void checkStudy(final AbstractApplicationContext appContext, final String studyId) {
+        final StudyService studyService = appContext.getBean(StudyService.class);
+        final Study study = studyService.getStudy(studyId);
+        if (study == null) {
+            throw new RuntimeException("Study " + study + " does not exist.");
         }
     }
 }

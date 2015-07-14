@@ -3,7 +3,7 @@
 import json
 
 rlist = []
-with open('stormpath-account-staging', 'r') as lines:
+with open('stormpath-account-uat', 'r') as lines:
     rlist = [json.loads(line) for line in lines]
 
 rsdict = {r['email'].lower(): r for r in rlist}
