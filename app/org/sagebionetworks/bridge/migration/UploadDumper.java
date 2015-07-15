@@ -1,18 +1,19 @@
 package org.sagebionetworks.bridge.migration;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.List;
 
+import org.apache.commons.io.FileUtils;
 import org.sagebionetworks.bridge.config.BridgeConfigFactory;
 import org.sagebionetworks.bridge.config.Environment;
 import org.sagebionetworks.bridge.s3.S3Helper;
 import org.sagebionetworks.bridge.services.UploadArchiveService;
 import org.springframework.context.support.AbstractApplicationContext;
-
-import com.amazonaws.services.s3.AmazonS3Client;
 
 class UploadDumper {
 
@@ -42,20 +43,30 @@ class UploadDumper {
             throw new RuntimeException(outputFolder + " already exists.");
         }
         Files.createDirectory(path);
-        final S3Helper s3Helper = new S3Helper();
-        s3Helper.setS3Client(appContext.getBean("s3Client", AmazonS3Client.class));
+        final S3Helper s3Helper = appContext.getBean("s3Helper", S3Helper.class);
         final String bucket = BridgeConfigFactory.getConfig().getProperty("upload.bucket");
         System.out.println("S3 bucket is " + bucket);
-        final UploadArchiveService upService = appContext.getBean(UploadArchiveService.class);
+        final UploadArchiveService uaService = appContext.getBean(UploadArchiveService.class);
         for (final String uploadId : uploadList) {
             final byte[] bytes = s3Helper.readS3FileAsBytes(bucket, uploadId);
-            final byte[] decrypted = upService.decrypt(studyId, bytes);
+            final byte[] decrypted = uaService.decrypt(studyId, bytes);
             final Path filePath = Paths.get(outputFolder, uploadId);
             Files.write(filePath, decrypted);
         }
     }
 
-    void upload(final String folder) {
-        // TODO: To be implemented -- encrypt, upload
+    void upload(final String folder) throws IOException {
+        final S3Helper s3Helper = appContext.getBean("s3Helper", S3Helper.class);
+        final String bucket = BridgeConfigFactory.getConfig().getProperty("upload.bucket");
+        System.out.println("S3 bucket is " + bucket);
+        final UploadArchiveService uaService = appContext.getBean(UploadArchiveService.class);
+        final Collection<File> fileList = FileUtils.listFiles(new File(folder), new String[]{}, false);
+        for (final File file : fileList) {
+            if (file.isFile() && !file.isHidden()) {
+                final byte[] bytes = Files.readAllBytes(file.toPath());
+                final byte[] encrypted = uaService.encrypt(studyId, bytes);
+                s3Helper.writeBytesToS3(bucket, file.getName(), encrypted);
+            }
+        }
     }
 }
