@@ -18,10 +18,8 @@ import org.springframework.context.support.AbstractApplicationContext;
 class UploadDumper {
 
     public static void main(String[] args) throws IOException {
-        final UploadDumper dumper = new UploadDumper(Environment.UAT, "heroku", "cardiovascular");
-        final Path path = Paths.get("upload-list-uat");
-        final List<String> uploadList = Files.readAllLines(path);
-        dumper.download(uploadList, "upload-uat");
+        final UploadDumper dumper = new UploadDumper(Environment.PROD, "heroku", "cardiovascular");
+        dumper.upload("upload-uat");
     }
 
     private final AbstractApplicationContext appContext;
@@ -55,17 +53,30 @@ class UploadDumper {
         }
     }
 
+    /**
+     * Encrypts then uploads to S3.
+     */
     void upload(final String folder) throws IOException {
-        final S3Helper s3Helper = appContext.getBean("s3Helper", S3Helper.class);
         final String bucket = BridgeConfigFactory.getConfig().getProperty("upload.bucket");
         System.out.println("S3 bucket is " + bucket);
+        final S3Helper s3Helper = appContext.getBean("s3Helper", S3Helper.class);
         final UploadArchiveService uaService = appContext.getBean(UploadArchiveService.class);
-        final Collection<File> fileList = FileUtils.listFiles(new File(folder), new String[]{}, false);
-        for (final File file : fileList) {
+        final File path = new File(folder);
+        if (!path.exists()) {
+            throw new RuntimeException(folder + " does not exists.");
+        }
+        final File[] files = path.listFiles();
+        for (final File file : files) {
             if (file.isFile() && !file.isHidden()) {
                 final byte[] bytes = Files.readAllBytes(file.toPath());
                 final byte[] encrypted = uaService.encrypt(studyId, bytes);
-                s3Helper.writeBytesToS3(bucket, file.getName(), encrypted);
+                final String fileName = file.getName();
+                System.out.println("Uploading file " + fileName);
+                if (s3Helper.exists(bucket, fileName)) {
+                    System.out.println(fileName + " exists and is skipped.");
+                } else {
+                    s3Helper.writeBytesToS3(bucket, fileName, encrypted);
+                }
             }
         }
     }
