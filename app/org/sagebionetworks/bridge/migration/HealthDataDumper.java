@@ -26,9 +26,9 @@ class HealthDataDumper {
     public static void main(String[] args) throws FileNotFoundException, IOException {
         final AbstractApplicationContext appContext = Utils.loadAppContext();
         HealthDataDumper dataDumper = new HealthDataDumper(Environment.UAT, "heroku", appContext);
-        DateTime start = new DateTime(2015, 7, 7, 0, 0);
-        DateTime end = new DateTime(2015, 7, 10, 0, 0);
-        String output = "health-data-staging-0707-0710";
+        DateTime start = new DateTime(2015, 7, 10, 0, 0);
+        DateTime end = new DateTime(2015, 7, 24, 0, 0);
+        String output = "health-data-staging-0710-0724";
         dataDumper.dump(start, end, output,
                 new HealthDataStudyFilter(appContext, "cardiovascular"),
                 new HealthDataAppVersionFilter("1.0.8"));
