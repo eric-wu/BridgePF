@@ -36,14 +36,6 @@ public interface SurveyService {
     public Survey getSurveyMostRecentlyPublishedVersion(StudyIdentifier studyIdentifier, String guid);
     
     /**
-     * Get the most recently published version of a survey, using the identifier for the survey.
-     * @param studyIdentifier
-     * @param identifier
-     * @return
-     */
-    public Survey getSurveyMostRecentlyPublishedVersionByIdentifier(StudyIdentifier studyIdentifier, String identifier);
-    
-    /**
      * Get the most recent version of each survey in the study that has been published. If a survey has not 
      * been published, nothing is returned. 
      * @param studyIdentifier
@@ -79,17 +71,20 @@ public interface SurveyService {
      * @return
      */
     public Survey updateSurvey(Survey survey);
-    
+
     /**
-     * Make this version of this survey available for scheduling. One scheduled for publishing, 
+     * Make this version of this survey available for scheduling. One scheduled for publishing,
      * a survey version can no longer be changed (it can still be the source of a new version).  
      * There can be more than one published version of a survey.
      *  
+     * @param study
+     *         study ID of study to publish the survey to
      * @param keys
-     * @return
+     *         survey keys (guid, created on timestamp)
+     * @return published survey
      */
-    public Survey publishSurvey(GuidCreatedOnVersionHolder keys);
-    
+    public Survey publishSurvey(StudyIdentifier study, GuidCreatedOnVersionHolder keys);
+
     /**
      * Delete this survey. Survey still exists in system and can be retrieved by direct reference
      * (URLs that directly reference the GUID and createdOn timestamp of the survey), put cannot be 
@@ -98,7 +93,16 @@ public interface SurveyService {
      * @param keys
      */
     public void deleteSurvey(GuidCreatedOnVersionHolder keys);
-    
+
+    /**
+     * Admin API to remove the survey from the backing store. This exists to clean up surveys from tests. This will
+     * remove the survey regardless of publish status, whether it has responses. This will delete all survey elements
+     * as well.
+     *
+     * @param keys survey keys (guid, created-on timestamp)
+     */
+    public void deleteSurveyPermanently(GuidCreatedOnVersionHolder keys);
+
     /**
      * Copy the survey and return a new version of it.
      * @param keys

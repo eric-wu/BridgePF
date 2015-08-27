@@ -15,12 +15,12 @@ libraryDependencies ++= Seq(
   filters,
   "org.jsoup" % "jsoup" % "1.8.2",
   // AWS
-  "com.amazonaws" % "aws-java-sdk-s3" % "1.10.1",
-  "com.amazonaws" % "aws-java-sdk-sts" % "1.10.1",
-  "com.amazonaws" % "aws-java-sdk-dynamodb" % "1.10.1",
-  "com.amazonaws" % "aws-java-sdk-ses" % "1.10.1",
+  "com.amazonaws" % "aws-java-sdk-s3" % "1.10.2",
+  "com.amazonaws" % "aws-java-sdk-sts" % "1.10.2",
+  "com.amazonaws" % "aws-java-sdk-dynamodb" % "1.10.2",
+  "com.amazonaws" % "aws-java-sdk-ses" % "1.10.2",
   // New Relic
-  "com.newrelic.agent.java" % "newrelic-agent" % "3.17.0",
+  "com.newrelic.agent.java" % "newrelic-agent" % "3.18.0",
   // Spring
   "org.springframework" % "spring-context" % "4.1.6.RELEASE",
   // Apache Commons
@@ -47,8 +47,8 @@ libraryDependencies ++= Seq(
   // Joda-Time
   "joda-time" % "joda-time" % "2.8.1",
   // Stormpath
-  "com.stormpath.sdk" % "stormpath-sdk-api" % "1.0.RC4.2",
-  "com.stormpath.sdk" % "stormpath-sdk-httpclient" % "1.0.RC4.2",
+  "com.stormpath.sdk" % "stormpath-sdk-api" % "1.0.RC4.5",
+  "com.stormpath.sdk" % "stormpath-sdk-httpclient" % "1.0.RC4.5",
   "org.apache.httpcomponents" % "httpclient" % "4.5",
   // Redis
   "redis.clients" % "jedis" % "2.7.2",
@@ -65,3 +65,5 @@ libraryDependencies ++= Seq(
 lazy val root = (project in file(".")).enablePlugins(PlayJava)
 
 routesGenerator := InjectedRoutesGenerator
+
+testOptions += Tests.Argument(TestFrameworks.JUnit, "-a")

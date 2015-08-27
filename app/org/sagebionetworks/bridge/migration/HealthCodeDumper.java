@@ -20,8 +20,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 class HealthCodeDumper {
 
     public static void main(String[] args) throws IOException {
-        final HealthCodeDumper dumper = new HealthCodeDumper(Environment.PROD, "heroku");
-        dumper.dump("health-id-prod", "health-id2code-prod");
+        final HealthCodeDumper dumper = new HealthCodeDumper(Environment.UAT, "heroku");
+        dumper.dump("health-id-staging-all", "health-id2code-staging-all");
     }
 
     private final AbstractApplicationContext appContext;

@@ -1,14 +1,18 @@
 package org.sagebionetworks.bridge.s3;
 
-import javax.annotation.Nonnull;
-
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
+import javax.annotation.Nonnull;
+
+import org.sagebionetworks.bridge.models.studies.MimeType;
+
 import com.amazonaws.services.s3.AmazonS3Client;
+import com.amazonaws.services.s3.model.CannedAccessControlList;
 import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
 import com.google.common.base.Charsets;
 import com.google.common.io.ByteStreams;
@@ -68,8 +72,29 @@ public class S3Helper {
         }
     }
 
+
     public boolean exists(@Nonnull String bucket, @Nonnull String key) {
         final ObjectListing listing = s3Client.listObjects(bucket, key);
         return !listing.getObjectSummaries().isEmpty();
+    }
+
+    
+    /**
+     * Write the byte array to a bucket at S3. The bucket will be given world read privileges, and the request 
+     * will be returned with the appropriate content type header for the document's MimeType.
+     * @param bucket
+     * @param key
+     * @param data
+     * @param type
+     * @throws IOException
+     */
+    public void writeBytesToPublicS3(@Nonnull String bucket, @Nonnull String key, @Nonnull byte[] data, @Nonnull MimeType type) throws IOException {
+        try (InputStream dataInputStream = new ByteArrayInputStream(data)) {
+            ObjectMetadata metadata = new ObjectMetadata();
+            metadata.setContentType(type.toString());
+            PutObjectRequest request = new PutObjectRequest(bucket, key, dataInputStream, metadata)
+                            .withCannedAcl(CannedAccessControlList.PublicRead);
+            s3Client.putObject(request);
+        }
     }
 }

@@ -11,7 +11,8 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
-import static org.sagebionetworks.bridge.Roles.RESEARCHER;
+import static org.sagebionetworks.bridge.Roles.ADMIN;
+import static org.sagebionetworks.bridge.Roles.DEVELOPER;
 
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,7 @@ import org.sagebionetworks.bridge.Roles;
 import org.sagebionetworks.bridge.TestUtils;
 import org.sagebionetworks.bridge.cache.CacheProvider;
 import org.sagebionetworks.bridge.cache.ViewCache;
+import org.sagebionetworks.bridge.exceptions.ConsentRequiredException;
 import org.sagebionetworks.bridge.exceptions.EntityNotFoundException;
 import org.sagebionetworks.bridge.exceptions.UnauthorizedException;
 import org.sagebionetworks.bridge.json.BridgeObjectMapper;
@@ -52,6 +54,7 @@ import com.google.common.collect.Sets;
  * etc. through integration tests is very slow.
  */
 public class SurveyControllerTest {
+    private static final StudyIdentifier API_STUDY_IDENTIFIER = new StudyIdentifierImpl("api");
 
     private SurveyController controller;
     
@@ -122,9 +125,10 @@ public class SurveyControllerTest {
         User user = new User();
         user.setHealthCode("BBB");
         user.setStudyKey(studyIdentifier);
-        user.setRoles(Sets.newHashSet(RESEARCHER));
+        user.setRoles(Sets.newHashSet(DEVELOPER));
         session.setUser(user);
         session.setStudyIdentifier(new StudyIdentifierImpl(studyIdentifier));
+        doReturn(session).when(controller).getAuthenticatedSession();
         doReturn(session).when(controller).getAuthenticatedAndConsentedSession();
         doReturn(session).when(controller).getAuthenticatedSession(any(Roles.class));
     }
@@ -338,37 +342,7 @@ public class SurveyControllerTest {
     }
     
     @Test
-    public void getMostRecentPublishedSurveyVersionByIdentifier() throws Exception {
-        StudyIdentifier studyId = new StudyIdentifierImpl("api");
-        String identifier = BridgeUtils.generateGuid();
-        setContext();
-        when(service.getSurveyMostRecentlyPublishedVersionByIdentifier(eq(studyId), eq(identifier))).thenReturn(getSurvey(false));
-        
-        controller.getMostRecentPublishedSurveyVersionByIdentifier(identifier);
-        
-        verify(service).getSurveyMostRecentlyPublishedVersionByIdentifier(eq(studyId), eq(identifier));
-        verifyNoMoreInteractions(service);
-    }
-    
-    @Test
-    public void cannotGetMostRecentPublishedSurveyVersionByIdentifierFromOtherStudy() throws Exception {
-        StudyIdentifier studyId = new StudyIdentifierImpl("secondstudy");
-        String identifier = BridgeUtils.generateGuid();
-        setContext();
-        when(service.getSurveyMostRecentlyPublishedVersionByIdentifier(eq(studyId), eq(identifier))).thenReturn(getSurvey(false));
-        setUserSession("secondstudy");
-        
-        try {
-            controller.getMostRecentPublishedSurveyVersionByIdentifier(identifier);
-            fail("Should have thrown exception");
-        } catch(UnauthorizedException e) {
-            verify(service).getSurveyMostRecentlyPublishedVersionByIdentifier(eq(studyId), eq(identifier));
-            verifyNoMoreInteractions(service);
-        }
-    }
-    
-    @Test
-    public void deleteSurvey() throws Exception {
+    public void deleteSurveyAllowedForDeveloper() throws Exception {
         String guid = BridgeUtils.generateGuid();
         DateTime date = DateTime.now();
         Survey survey = getSurvey(false);
@@ -376,11 +350,64 @@ public class SurveyControllerTest {
         when(service.getSurvey(eq(keys))).thenReturn(survey);
         setContext();
         
-        controller.deleteSurvey(guid, date.toString());
+        controller.deleteSurvey(guid, date.toString(), "false");
 
         verify(service).getSurvey(eq(keys));
         verify(service).deleteSurvey(eq(survey));
         verifyNoMoreInteractions(service);
+    }
+    
+    @Test
+    public void physicalDeleteOfSurveyNotAllowedForDeveloper() throws Exception {
+        String guid = BridgeUtils.generateGuid();
+        DateTime date = DateTime.now();
+        Survey survey = getSurvey(false);
+        GuidCreatedOnVersionHolder keys = new GuidCreatedOnVersionHolderImpl(guid, date.getMillis());
+        when(service.getSurvey(eq(keys))).thenReturn(survey);
+        setContext();
+        
+        controller.deleteSurvey(guid, date.toString(), "true");
+        
+        verify(service).getSurvey(eq(keys));
+        verify(service).deleteSurvey(eq(survey));
+        verifyNoMoreInteractions(service);
+    }
+    
+    @Test
+    public void physicalDeleteAllowedForAdmin() throws Exception {
+        String guid = BridgeUtils.generateGuid();
+        DateTime date = DateTime.now();
+        Survey survey = getSurvey(false);
+        GuidCreatedOnVersionHolder keys = new GuidCreatedOnVersionHolderImpl(guid, date.getMillis());
+        when(service.getSurvey(eq(keys))).thenReturn(survey);
+        setContext();
+        
+        session.getUser().getRoles().add(ADMIN);
+        controller.deleteSurvey(guid, date.toString(), "true");
+        
+        verify(service).getSurvey(eq(keys));
+        verify(service).deleteSurveyPermanently(eq(survey));
+        verifyNoMoreInteractions(service);
+    }
+    
+    @Test
+    public void deleteBlockedForAdminThatDoesntAskForPhysicalDelete() throws Exception {
+        String guid = BridgeUtils.generateGuid();
+        DateTime date = DateTime.now();
+        Survey survey = getSurvey(false);
+        GuidCreatedOnVersionHolder keys = new GuidCreatedOnVersionHolderImpl(guid, date.getMillis());
+        when(service.getSurvey(eq(keys))).thenReturn(survey);
+        setContext();
+        
+        session.getUser().getRoles().remove(DEVELOPER);
+        session.getUser().getRoles().add(ADMIN);
+        try {
+            controller.deleteSurvey(guid, date.toString(), "false");
+            fail("This should have thrown an exception");
+        } catch(UnauthorizedException e) {
+            verify(service).getSurvey(eq(keys));
+            verifyNoMoreInteractions(service);
+        }
     }
     
     @Test(expected = EntityNotFoundException.class)
@@ -391,7 +418,7 @@ public class SurveyControllerTest {
         when(service.getSurvey(eq(keys))).thenThrow(new EntityNotFoundException(Survey.class));
         setContext();
         
-        controller.deleteSurvey(guid, date.toString());
+        controller.deleteSurvey(guid, date.toString(), "false");
     }
     
     @Test
@@ -405,7 +432,7 @@ public class SurveyControllerTest {
         setUserSession("secondstudy");
         
         try {
-            controller.deleteSurvey(guid, date.toString());
+            controller.deleteSurvey(guid, date.toString(), "false");
             fail("Should have thrown exception");
         } catch(UnauthorizedException e) {
             verify(service).getSurvey(eq(keys));
@@ -531,12 +558,12 @@ public class SurveyControllerTest {
         GuidCreatedOnVersionHolder keys = new GuidCreatedOnVersionHolderImpl(survey.getGuid(), survey.getCreatedOn());
         setContext();
         when(service.getSurvey(keys)).thenReturn(survey);
-        when(service.publishSurvey(any(Survey.class))).thenReturn(survey);
-        
+        when(service.publishSurvey(eq(API_STUDY_IDENTIFIER), any(Survey.class))).thenReturn(survey);
+
         controller.publishSurvey(keys.getGuid(), new DateTime(keys.getCreatedOn()).toString());
         
         verify(service).getSurvey(keys);
-        verify(service).publishSurvey(any(Survey.class));
+        verify(service).publishSurvey(eq(API_STUDY_IDENTIFIER), any(Survey.class));
         verifyNoMoreInteractions(service);
     }
     
@@ -546,7 +573,7 @@ public class SurveyControllerTest {
         GuidCreatedOnVersionHolder keys = new GuidCreatedOnVersionHolderImpl(survey.getGuid(), survey.getCreatedOn());
         setContext();
         when(service.getSurvey(keys)).thenReturn(survey);
-        when(service.publishSurvey(any(Survey.class))).thenReturn(survey);
+        when(service.publishSurvey(eq(API_STUDY_IDENTIFIER), any(Survey.class))).thenReturn(survey);
         setUserSession("secondstudy");
         
         try {
@@ -567,14 +594,49 @@ public class SurveyControllerTest {
         setUserSession("secondstudy");
         
         try {
-            controller.deleteSurvey(keys.getGuid(), new DateTime(keys.getCreatedOn()).toString());
+            controller.deleteSurvey(keys.getGuid(), new DateTime(keys.getCreatedOn()).toString(), "false");
             fail("Exception should have been thrown.");
         } catch(UnauthorizedException e) {
             verify(service).getSurvey(keys);
             verifyNoMoreInteractions(service);
         }
     }
+
+    @Test
+    public void adminRejectedAsUnauthorized() throws Exception {
+        Survey survey = getSurvey(false);
+        GuidCreatedOnVersionHolder keys = new GuidCreatedOnVersionHolderImpl(survey.getGuid(), survey.getCreatedOn());
+        setContext();
+        when(service.getSurvey(keys)).thenReturn(survey);
+        setUserSession("api");
+        session.getUser().getRoles().clear();
+        session.getUser().getRoles().add(ADMIN);
+        
+        try {
+            controller.getSurvey(keys.getGuid(), new DateTime(keys.getCreatedOn()).toString());
+            fail("Exception should have been thrown.");
+        } catch(UnauthorizedException e) {
+            verifyNoMoreInteractions(service);
+        }
+    }
     
+    @Test
+    public void studyParticipantRejectedAsNotConsented() throws Exception {
+        Survey survey = getSurvey(false);
+        GuidCreatedOnVersionHolder keys = new GuidCreatedOnVersionHolderImpl(survey.getGuid(), survey.getCreatedOn());
+        setContext();
+        when(service.getSurvey(keys)).thenReturn(survey);
+        setUserSession("api");
+        session.getUser().getRoles().clear();
+        session.getUser().setConsent(false);
+        
+        try {
+            controller.getSurvey(keys.getGuid(), new DateTime(keys.getCreatedOn()).toString());
+            fail("Exception should have been thrown.");
+        } catch(ConsentRequiredException e) {
+            verifyNoMoreInteractions(service);
+        }
+    }    
     private Survey getSurvey(boolean makeNew) {
         Survey survey = new TestSurvey(makeNew);
         survey.setName("bloodpressure " + survey.getGuid());

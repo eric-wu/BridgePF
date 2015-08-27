@@ -10,6 +10,7 @@ import java.util.Set;
 import javax.annotation.Resource;
 
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.sagebionetworks.bridge.TestUtils;
@@ -31,9 +32,13 @@ public class DynamoStudyDaoTest {
     @Resource
     DynamoStudyDao studyDao;
 
-    @Before
-    public void before() {
+    @BeforeClass
+    public static void beforeClass() {
         DynamoInitializer.init(DynamoStudy.class);
+    }
+    
+    @Before
+    public void before() throws Exception {
         // We need to leave the test study in the database.
         List<Study> studies = studyDao.getStudies();
         for (Study study : studies) {
@@ -46,10 +51,12 @@ public class DynamoStudyDaoTest {
     @Test
     public void crudOneStudy() {
         Study study = TestUtils.getValidStudy();
+        study.setStormpathHref("http://url.com/");
         study.setUserProfileAttributes(EXTRA_USER_PROFILE_ATTRIBUTES);
 
         study = studyDao.createStudy(study);
         assertNotNull("Study was assigned a version", study.getVersion());
+        assertNotNull("Study has an identifier", study.getIdentifier());
 
         study.setName("This is a test name");
         study.setMaxNumOfParticipants(10);
@@ -58,7 +65,6 @@ public class DynamoStudyDaoTest {
         study = studyDao.getStudy(study.getIdentifier());
         assertEquals("Name was set", "This is a test name", study.getName());
         assertEquals("Max participants was set", 10, study.getMaxNumOfParticipants());
-        assertNotNull("Study deployment was set", study.getStormpathHref());
         assertEquals("bridge-testing+support@sagebase.org", study.getSupportEmail());
         assertEquals("bridge-testing+consent@sagebase.org", study.getConsentNotificationEmail());
         assertEquals(EXTRA_USER_PROFILE_ATTRIBUTES, study.getUserProfileAttributes());
@@ -69,28 +75,27 @@ public class DynamoStudyDaoTest {
             study = studyDao.getStudy(identifier);
             fail("Should have thrown EntityNotFoundException");
         } catch (EntityNotFoundException e) {
+            // expected
         }
     }
 
     @Test
-    public void canRetrieveAllStudies() {
+    public void canRetrieveAllStudies() throws InterruptedException {
         List<Study> studies = Lists.newArrayList();
         try {
             studies.add(studyDao.createStudy(TestUtils.getValidStudy()));
             studies.add(studyDao.createStudy(TestUtils.getValidStudy()));
-            studies.add(studyDao.createStudy(TestUtils.getValidStudy()));
-            studies.add(studyDao.createStudy(TestUtils.getValidStudy()));
-            studies.add(studyDao.createStudy(TestUtils.getValidStudy()));
-
+        
             List<Study> savedStudies = studyDao.getStudies();
             // The five studies, plus the API study we refuse to delete...
-            assertEquals("There are six studies", 6, savedStudies.size());
-
+            assertEquals("There are three studies", 3, savedStudies.size());
         } finally {
             for (Study study : studies) {
                 studyDao.deleteStudy(study);
             }
         }
+        // TODO: Investigating why tests fail often (not always) without this
+        Thread.sleep(5000);        
         List<Study> savedStudies = studyDao.getStudies();
         assertEquals("There should be only one study", 1, savedStudies.size());
         assertEquals("That should be the test study study", "api", savedStudies.get(0).getIdentifier());

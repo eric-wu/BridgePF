@@ -6,20 +6,13 @@ import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 import java.util.Map;
 
-import org.apache.http.auth.AuthScope;
-import org.apache.http.auth.UsernamePasswordCredentials;
-import org.apache.http.client.CredentialsProvider;
-import org.apache.http.impl.client.BasicCredentialsProvider;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.commons.lang3.StringUtils;
 import org.sagebionetworks.bridge.BridgeUtils;
 import org.sagebionetworks.bridge.Roles;
 import org.sagebionetworks.bridge.config.BridgeConfig;
-import org.sagebionetworks.bridge.config.BridgeConfigFactory;
 import org.sagebionetworks.bridge.dao.DirectoryDao;
-import org.sagebionetworks.bridge.exceptions.BridgeServiceException;
 import org.sagebionetworks.bridge.models.studies.EmailTemplate;
-import org.sagebionetworks.bridge.models.studies.EmailTemplate.MimeType;
+import org.sagebionetworks.bridge.models.studies.MimeType;
 import org.sagebionetworks.bridge.models.studies.Study;
 import org.sagebionetworks.bridge.validators.Validate;
 import org.slf4j.Logger;
@@ -27,17 +20,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.Maps;
 import com.stormpath.sdk.application.AccountStoreMapping;
 import com.stormpath.sdk.application.AccountStoreMappingCriteria;
 import com.stormpath.sdk.application.AccountStoreMappings;
 import com.stormpath.sdk.application.Application;
 import com.stormpath.sdk.client.Client;
-import com.stormpath.sdk.directory.Directories;
+import com.stormpath.sdk.directory.AccountCreationPolicy;
 import com.stormpath.sdk.directory.Directory;
-import com.stormpath.sdk.directory.DirectoryCriteria;
-import com.stormpath.sdk.directory.DirectoryList;
 import com.stormpath.sdk.directory.PasswordPolicy;
 import com.stormpath.sdk.directory.PasswordStrength;
 import com.stormpath.sdk.group.Group;
@@ -46,7 +36,7 @@ import com.stormpath.sdk.group.GroupList;
 import com.stormpath.sdk.group.Groups;
 import com.stormpath.sdk.mail.EmailStatus;
 import com.stormpath.sdk.mail.ModeledEmailTemplate;
-import com.stormpath.sdk.mail.ModeledEmailTemplateList;
+import com.stormpath.sdk.resource.ResourceException;
 
 @Component
 public class StormpathDirectoryDao implements DirectoryDao {
@@ -74,7 +64,7 @@ public class StormpathDirectoryDao implements DirectoryDao {
         checkNotNull(app);
         String dirName = createDirectoryName(study.getIdentifier());
 
-        Directory directory = getDirectory(dirName);
+        Directory directory = getDirectoryForStudy(study);
         if (directory == null) {
             directory = client.instantiate(Directory.class);
             directory.setName(dirName);
@@ -113,24 +103,34 @@ public class StormpathDirectoryDao implements DirectoryDao {
     public void updateDirectoryForStudy(Study study) {
         checkNotNull(study);
         
-        Directory directory = getDirectoryForStudy(study.getIdentifier());
+        Directory directory = getDirectoryForStudy(study);
         adjustPasswordPolicies(study, directory);
         adjustVerifyEmailPolicies(study, directory);
     };
 
     @Override
-    public Directory getDirectoryForStudy(String identifier) {
-        String dirName = createDirectoryName(identifier);
-        return getDirectory(dirName);
+    public Directory getDirectoryForStudy(Study study) {
+        if (study != null && StringUtils.isNotBlank(study.getStormpathHref())) {
+            try {
+                return client.getResource(study.getStormpathHref(), Directory.class);    
+            } catch(ResourceException e) {
+                // Not unusual, as we check for the existence of a directory before creating a study.
+                // Only rethrow if this is not a 404, otherwise ignore.
+                if (e.getCode() != 404) {
+                    throw e;
+                }
+            }
+        }
+        return null;
     }
 
     @Override
-    public void deleteDirectoryForStudy(String identifier) {
-        checkArgument(isNotBlank(identifier), Validate.CANNOT_BE_BLANK, "identifier");
+    public void deleteDirectoryForStudy(Study study) {
+        checkNotNull(study, Validate.CANNOT_BE_NULL, "study");
         Application app = getApplication();
         checkNotNull(app);
-
-        Directory existing = getDirectory(createDirectoryName(identifier));
+        
+        Directory existing = getDirectoryForStudy(study);
         
         // delete the mapping
         AccountStoreMapping mapping = getApplicationMapping(existing.getHref(), app);
@@ -149,7 +149,7 @@ public class StormpathDirectoryDao implements DirectoryDao {
         }
     }
 
-    private Group getGroup(Directory dir, Roles role) {
+    private static Group getGroup(Directory dir, Roles role) {
         GroupCriteria criteria = Groups.where(Groups.name().eqIgnoreCase(role.name().toLowerCase()));
         GroupList list = dir.getGroups(criteria);
         return (list.iterator().hasNext()) ? list.iterator().next() : null;
@@ -163,7 +163,7 @@ public class StormpathDirectoryDao implements DirectoryDao {
         return client.getResource(config.getStormpathApplicationHref(), Application.class);
     }
     
-    private AccountStoreMapping getApplicationMapping(String href, Application app) {
+    private static AccountStoreMapping getApplicationMapping(String href, Application app) {
         // This is tedious but I see no way to search for or make a reference to this 
         // mapping without iterating through the application's mappings.
         for (AccountStoreMapping mapping : app.getAccountStoreMappings(asmCriteria)) {
@@ -174,43 +174,12 @@ public class StormpathDirectoryDao implements DirectoryDao {
         return null;
     }
 
-    private Directory getDirectory(String name) {
-        DirectoryCriteria criteria = Directories.where(Directories.name().eqIgnoreCase(name));
-        DirectoryList list = client.getDirectories(criteria);
-        return (list.iterator().hasNext()) ? list.iterator().next() : null;
-    }
-    
     private void adjustPasswordPolicies(Study study, Directory directory) {
-        EmailTemplate rp = study.getResetPasswordTemplate();
-        
         PasswordPolicy passwordPolicy = directory.getPasswordPolicy();
-        passwordPolicy.setResetEmailStatus(EmailStatus.ENABLED);
-        passwordPolicy.setResetSuccessEmailStatus(EmailStatus.DISABLED);
-        
-        ModeledEmailTemplateList resetEmailTemplates = passwordPolicy.getResetEmailTemplates();
         
         // According to the documentation, there is only one...
-        ModeledEmailTemplate template = resetEmailTemplates.iterator().next();
-        if (study.getSponsorName() != null) {
-            template.setFromName(study.getSponsorName());    
-        } else {
-            template.setFromName(study.getName());
-        }
-        template.setFromEmailAddress(study.getSupportEmail());
-
-        String subject = partiallyResolveTemplate(rp.getSubject(), study);
-        template.setSubject(subject);
-        
-        com.stormpath.sdk.mail.MimeType stormpathMimeType = getStormpathMimeType(study);
-        template.setMimeType(stormpathMimeType);
-        
-        String body = partiallyResolveTemplate(rp.getBody(), study);
-        template.setTextBody(body);
-        template.setHtmlBody(body);
-
-        String link = String.format("%s/mobile/resetPassword.html?study=%s", config.getBaseURL(), study.getIdentifier());
-        template.setLinkBaseUrl(link);
-        template.save();
+        ModeledEmailTemplate template = passwordPolicy.getResetEmailTemplates().iterator().next();
+        updateTemplate(study, template, study.getResetPasswordTemplate(), "resetPassword");
         
         PasswordStrength strength = passwordPolicy.getStrength();
         strength.setMaxLength(org.sagebionetworks.bridge.models.studies.PasswordPolicy.FIXED_MAX_LENGTH);
@@ -221,70 +190,54 @@ public class StormpathDirectoryDao implements DirectoryDao {
         strength.setMinLowerCase(study.getPasswordPolicy().isLowerCaseRequired() ? 1 : 0);
         strength.setMinUpperCase(study.getPasswordPolicy().isUpperCaseRequired() ? 1 : 0);
         strength.save();
+        
+        passwordPolicy.setResetEmailStatus(EmailStatus.ENABLED);
+        passwordPolicy.setResetSuccessEmailStatus(EmailStatus.DISABLED);
         passwordPolicy.save();
     }
     
-    /**
-     * There is a pull request pending to add this to the Stormpath Java SDK. So this REST/HTTP code should be temporary.
-     * 
-     * @param study
-     * @param directory
-     */
     private void adjustVerifyEmailPolicies(Study study, Directory directory) {
-        try {
-            EmailTemplate ve = study.getVerifyEmailTemplate();
-            BridgeConfig config = BridgeConfigFactory.getConfig();
-            
-            // Create an HTTP client using Basic Auth with stormpath credentials (yes it's basic auth but it's over SSL and going away)
-            CredentialsProvider provider = new BasicCredentialsProvider();
-            UsernamePasswordCredentials credentials = new UsernamePasswordCredentials(config.getStormpathId(), config.getStormpathSecret());
-            provider.setCredentials(AuthScope.ANY, credentials);
-            CloseableHttpClient client = HttpClientBuilder.create().setDefaultCredentialsProvider(provider).build();
-            
-            // Get directory as JSON
-            ObjectNode directoryNode = StormpathUtils.getJSON(client, directory.getHref());
-            String accountCreationUrl = directoryNode.get("accountCreationPolicy").get("href").asText();
-            
-            // Get account policy as JSON, update to our standard configuration
-            ObjectNode accountPolicyNode = StormpathUtils.getJSON(client, accountCreationUrl);
-            String verificationEmailTemplatesUrl = accountPolicyNode.get("verificationEmailTemplates").get("href").asText();
-            accountPolicyNode.put("verificationEmailStatus", "ENABLED");
-            accountPolicyNode.put("verificationSuccessEmailStatus", "DISABLED");
-            accountPolicyNode.put("welcomeEmailStatus", "DISABLED");
-            // save the account policy
-            StormpathUtils.postJSON(client, accountCreationUrl, accountPolicyNode);
-            
-            // Get the verify email template
-            ObjectNode templateNode = StormpathUtils.getJSON(client, verificationEmailTemplatesUrl);
-            String templateUrl = templateNode.get("items").get(0).get("href").asText();
-            // Update this template with study-specific information
-            ObjectNode template = StormpathUtils.getJSON(client, templateUrl);
-            if (study.getSponsorName() != null) {
-                template.put("fromName", study.getSponsorName());    
-            } else {
-                template.put("fromName", study.getName());
-            }
-            template.put("fromEmailAddress", study.getSupportEmail());
-            template.put("subject", partiallyResolveTemplate(ve.getSubject(), study));
-            template.put("mimeType", ve.getMimeType() == MimeType.HTML ? "text/html" : "text/plain");
-            String body = partiallyResolveTemplate(ve.getBody(), study);
-            template.put("textBody", body);
-            template.put("htmlBody", body);
-            String link = String.format("%s/mobile/verifyEmail.html?study=%s", config.getBaseURL(), study.getIdentifier());
-            ((ObjectNode)template.get("defaultModel")).put("linkBaseUrl", link);
-            // save the verify email template
-            StormpathUtils.postJSON(client, templateUrl, template);
-        } catch(Throwable throwable) {
-            throw new BridgeServiceException(throwable);
+        AccountCreationPolicy policy = directory.getAccountCreationPolicy();
+        
+        // According to the documentation, there is only one...
+        ModeledEmailTemplate template = policy.getAccountVerificationEmailTemplates().iterator().next();
+        updateTemplate(study, template, study.getVerifyEmailTemplate(), "verifyEmail");
+        
+        policy.setVerificationEmailStatus(EmailStatus.ENABLED);
+        policy.setVerificationSuccessEmailStatus(EmailStatus.DISABLED);
+        policy.setWelcomeEmailStatus(EmailStatus.DISABLED);
+        policy.save();
+    }
+    
+    private void updateTemplate(Study study, ModeledEmailTemplate stormpathTemplate, EmailTemplate template, String pageName) {
+        if (study.getSponsorName() != null) {
+            stormpathTemplate.setFromName(study.getSponsorName());    
+        } else {
+            stormpathTemplate.setFromName(study.getName());
         }
+        stormpathTemplate.setFromEmailAddress(study.getSupportEmail());
+
+        String subject = partiallyResolveTemplate(template.getSubject(), study);
+        stormpathTemplate.setSubject(subject);
+        
+        com.stormpath.sdk.mail.MimeType stormpathMimeType = getStormpathMimeType(template);
+        stormpathTemplate.setMimeType(stormpathMimeType);
+        
+        String body = partiallyResolveTemplate(template.getBody(), study);
+        stormpathTemplate.setTextBody(body);
+        stormpathTemplate.setHtmlBody(body);
+
+        String link = String.format("%s/mobile/%s.html?study=%s", config.getWebservicesURL(), pageName, study.getIdentifier());
+        stormpathTemplate.setLinkBaseUrl(link);
+        stormpathTemplate.save();
     }
 
-    private com.stormpath.sdk.mail.MimeType getStormpathMimeType(Study study) {
-        return (study.getResetPasswordTemplate().getMimeType() == EmailTemplate.MimeType.TEXT) ? 
+    public static com.stormpath.sdk.mail.MimeType getStormpathMimeType(EmailTemplate template) {
+        return (template.getMimeType() == MimeType.TEXT) ? 
             com.stormpath.sdk.mail.MimeType.PLAIN_TEXT : com.stormpath.sdk.mail.MimeType.HTML;
     }
     
-    private String partiallyResolveTemplate(String template, Study study) {
+    private static String partiallyResolveTemplate(String template, Study study) {
         Map<String,String> map = Maps.newHashMap();
         map.put("studyName", study.getName());
         map.put("supportEmail", study.getSupportEmail());
